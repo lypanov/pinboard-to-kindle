@@ -9,12 +9,14 @@ const argv = require('minimist')(process.argv.slice(2));
 
 // Don't use Firefox for these domains. Will use JSDOM to fetch page source instead.
 const FIREFOX_DOMAIN_DENYLIST = [
-    'spiegel.de'
+    'spiegel.de',
+    'anandtech.com'
 ]
 
 // Don't use Readability for these domains. Will use full page HTML instead.
 const READABILITY_DOMAIN_DENYLIST = [
-    'newyorker.com'
+    'newyorker.com',
+    'anandtech.com'
 ]
 
 function url_in_blacklist(url, blacklist) {
@@ -52,7 +54,7 @@ async function fetch_page_source_firefox(url, callback) {
     const driver = await new Builder()
         .forBrowser('firefox')
         .withCapabilities(Capabilities.firefox().set("acceptInsecureCerts", true))
-        .setFirefoxOptions(new firefox.Options().addArguments("-headless"))
+        .setFirefoxOptions(new firefox.Options().addArguments("-headless", "-profile", "/home/lypanov/.mozilla/firefox/pjztdvcl.default-release-2"))
         .build();
     try {
         await driver.get(url);
@@ -65,9 +67,27 @@ async function fetch_page_source_firefox(url, callback) {
 }
 
 async function fetch_page_source_jsdom(url, callback) {
-    JSDOM.fromURL(url).then(dom => {
-        callback(dom.window.document.documentElement.outerHTML);
-    });
+    var html = "";
+    var dom = await JSDOM.fromURL(url);
+    html += dom.window.document.querySelector("title").outerHTML;
+    for (const x of dom.window.document.querySelectorAll("meta")) {
+        html += x.outerHTML;
+    }
+    html += dom.window.document.querySelector("div.articleContent").innerHTML;
+    for (const x of dom.window.document.querySelectorAll("div.article_links_top option")) {
+        if (x.value == dom.window.location.pathname) {
+            console.log("already added", x.value)
+        } else {
+            var _url = dom.window.location.origin + x.value;
+            console.log("adding", _url);
+            var _dom = await JSDOM.fromURL(_url);
+            html += _dom.window.document.querySelector("div.articleContent").innerHTML;
+            console.log(html.length);
+        }
+    }
+    console.log("done, calling back")
+    console.log(html);
+    callback(html);
 }
 
 async function make_readable(url, callback) {
@@ -86,6 +106,9 @@ async function make_readable(url, callback) {
         if (use_readability(url)) {
             articleHtml = article.content;
         }
+        console.log("\n\n///////////////////////////////////////\n\n");
+        console.log(articleHtml);
+        console.log("\n\n///////////////////////////////////////\n\n");
 
         // Base path for images and other media
         res.push('<base href="' + url + '" />')
@@ -99,6 +122,10 @@ async function make_readable(url, callback) {
             meta.push(article.siteName);
         }
         meta.push(countWords(article.textContent) + ' words');	
+
+console.log("\n\n///////////////////////////////////////META\n\n");
+console.log(meta);
+console.log("\n\n///////////////////////////////////////\n\n");
         
         // Article links
         let links = [];
@@ -113,16 +140,22 @@ async function make_readable(url, callback) {
             links.push('<a class="pb-to-kindle-article-mark-as-read-link" href="' + href + '">Mark as read</a>');
         }
 
+console.log("\n\n///////////////////////////////////////LINKS\n\n");
+console.log(links);
+console.log("\n\n///////////////////////////////////////\n\n");
         // Output
         if (article.title) {
             res.push('<h2 class="pb-to-kindle-article-title">' + article.title + '</h2>');
+console.log("\n\n///////////////////////////////////////TITLE\n\n");
+console.log(article.title);
+console.log("\n\n///////////////////////////////////////\n\n");
         }
         res.push('<p><i class="pb-to-kindle-article-metadata">' + meta.join(' • ') + '</i></p>');
-        res.push('<p><i class="pb-to-kindle-article-links">' + links.join(' • ') + '</i></p>');
+        // res.push('<p><i class="pb-to-kindle-article-links">' + links.join(' • ') + '</i></p>');
         res.push('<hr>');
         res.push(articleHtml);
         res.push('<hr>');
-        res.push('<p><i>' + links.join(' • ') + '</i></p>');
+        // res.push('<p><i>' + links.join(' • ') + '</i></p>');
 
         return callback(res); 
     });

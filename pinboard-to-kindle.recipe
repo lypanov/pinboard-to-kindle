@@ -12,7 +12,7 @@ __website__ = "https://github.com/christianhans/pinboard-to-kindle"
 # Config
 #
 ## Maximum number of unread Pinboard bookmarks to fetch
-MAX_ARTICLES = 25
+MAX_ARTICLES = 100
 
 ## If set, the recipe will only consider unread Pinboard bookmarks that have this tag
 KINDLE_TO_TAG = "kindle-to"
@@ -63,9 +63,14 @@ class PinboardRecipe(BasicNewsRecipe):
         return pinboard_token
 
     def _get_bookmarks(self):
+        subtag = os.environ.get("SUBTAG")
+        if not subtag:
+           tag_blah = KINDLE_TO_TAG
+        else:
+           tag_blah = KINDLE_TO_TAG + " " + subtag
         params = urlencode(
             {
-                "tag": KINDLE_TO_TAG if KINDLE_TO_TAG else "",
+                "tag": tag_blah,
                 "format": "json",
                 "auth_token": self._get_pinboard_token(),
             }
@@ -163,14 +168,14 @@ class PinboardRecipe(BasicNewsRecipe):
         bookmarks = self._get_bookmarks()
         for bookmark in bookmarks:
             url = bookmark["href"]
+            bookmark["failed"] = False
             try:
                 article_file_path = self._fetch_article_moz_readability(url)
                 article_info = self._get_article_metadata(article_file_path)
             except:
                 print("Error fetching URL: {}".format(url))
+                bookmark["failed"] = True
                 continue
-
-            self._mark_bookmark_as_sent(bookmark)
 
             articles.append(
                 {
@@ -180,6 +185,9 @@ class PinboardRecipe(BasicNewsRecipe):
                     # "date": "February 20th, 2020",
                 }
             )
+        for bookmark in bookmarks:
+            if not bookmark["failed"]:
+                self._mark_bookmark_as_sent(bookmark)
 
         return [("Pinboard", articles)]
 

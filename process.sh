@@ -7,10 +7,6 @@ then
   exit 0
 fi
 
-# Define as environment variables or define here:
-# MAIL_FROM = ""
-# MAIL_TO = ""
-
 RECIPE_PATH="$1"
 TITLE="${@:2}"
 DATE=`date +%Y-%m-%d`
@@ -21,8 +17,8 @@ then
   mkdir ${FETCHED_DIR_PATH}
 fi
 
-ebook-convert "${RECIPE_PATH}" "${FETCHED_DIR_PATH}/${TITLE}-${DATE}.mobi" \
-  --dont-compress --change-justification left \
-  --title "${TITLE} ${DATE}" --output-profile kindle_oasis && \
-  echo "" | mail -a"From:$MAIL_FROM" -s "[pinboard-to-kindle] ${TITLE} ${DATE}" \
-    -A "${FETCHED_DIR_PATH}/${TITLE}-${DATE}.mobi" "${MAIL_TO}"
+ebook-convert "${RECIPE_PATH}" "${FETCHED_DIR_PATH}/Pinboard-${DATE}-${TITLE}.epub" \
+  --change-justification left \
+  --title "${TITLE} ${DATE}" --output-profile generic_eink_hd
+
+rclone --max-depth 1 -P -v copy /home/lypanov/calibre-fetched/ "koofr:Boox Sync"
