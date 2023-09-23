@@ -54,7 +54,8 @@ async function fetch_page_source_firefox(url, callback) {
     const driver = await new Builder()
         .forBrowser('firefox')
         .withCapabilities(Capabilities.firefox().set("acceptInsecureCerts", true))
-        .setFirefoxOptions(new firefox.Options().addArguments("-headless", "-profile", "/home/lypanov/.mozilla/firefox/pjztdvcl.default-release-2"))
+
+        .setFirefoxOptions(new firefox.Options().addArguments("-headless", "-profile", "/home/lypanov/.mozilla/firefox-esr/pjztdvcl.default-release-2").setBinary("/usr/bin/firefox-esr"))
         .build();
     try {
         await driver.get(url);
