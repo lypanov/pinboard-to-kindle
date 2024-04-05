@@ -17,8 +17,10 @@ then
   mkdir ${FETCHED_DIR_PATH}
 fi
 
-ebook-convert "${RECIPE_PATH}" "${FETCHED_DIR_PATH}/Pinboard-${DATE}-${TITLE}.epub" \
+ebook-convert "${RECIPE_PATH}" "${FETCHED_DIR_PATH}/${DATE}-${TITLE}.epub" \
   --change-justification left \
   --title "${TITLE} ${DATE}" --output-profile generic_eink_hd
+pandoc --pdf-engine=xelatex -s "${FETCHED_DIR_PATH}/${DATE}-${TITLE}.epub" -o "${FETCHED_DIR_PATH}/${DATE}-${TITLE}.pdf"
 
-rclone --max-depth 1 -P -v copy /home/lypanov/calibre-fetched/ "koofr:Boox Sync"
+rclone --max-depth 1 -P -v copy /home/lypanov/calibre-fetched/ "koofr:Boox Sync" --include "*.epub"
+rclone --max-depth 1 -P -v copy /home/lypanov/calibre-fetched/ "drive:Articles" --include "*.pdf"
