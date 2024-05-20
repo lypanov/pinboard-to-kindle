@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2020", // Modern JavaScript output
+    "module": "ESNext", // Use ESM
+    "moduleResolution": "Node", // Resolve modules using Node.js style
+    "esModuleInterop": true, // Enable interoperability between CommonJS and ESM
+    "allowSyntheticDefaultImports": true, // Allow default imports from modules with no default export
+    "outDir": "./dist", // Output directory for compiled files
+    "rootDir": "./src", // Root directory of source files
+    "strict": true, // Enable strict type-checking options
+    "resolveJsonModule": true, // Allow importing JSON files
+    "skipLibCheck": true, // Skip type checking of all declaration files
+    "noEmit": false, // Set to false to emit output files
+    "declaration": true, // Generate declaration files
+    "declarationDir": "./dist/types" // Directory for declaration files
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
