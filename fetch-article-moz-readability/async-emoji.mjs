@@ -58,7 +58,7 @@ function processString(input) {
         if (/^[\p{Extended_Pictographic}]$/gu.test(char) && isCharacterInRange(char)) {
             const hexCode = `u${codePoint.toString(16)}`;
             const fileName = `${hexCode}_72.png`;
-            outputMarkdown.push(`<img class="emoji-font" src="../noto_cache/${fileName}" alt="${char}">`);
+            outputMarkdown.push(`<img class="emoji-font" src="../noto_cache/${fileName}" alt="${char}"></img>`);
         } else {
             outputMarkdown.push(char);
         }

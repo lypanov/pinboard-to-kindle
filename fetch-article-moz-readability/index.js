@@ -40,12 +40,14 @@ let ADD_UNIQUE_ID_SCRIPT = `
     addUniqueId(document.body);`;
 
 async function fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, firefoxProfile, callback) {
+    const h = true;
+    const heads = h ? [] : ["-headless"];
     const driver = await new Builder()
           .forBrowser('firefox')
           .withCapabilities(Capabilities.firefox().set("acceptInsecureCerts", true))
-
-          .setFirefoxOptions(new firefox.Options().addArguments("-headless", "-profile", firefoxProfile)
-                                                  .setBinary("/usr/bin/firefox-esr"))
+          .setFirefoxOptions(new firefox.Options().addArguments(...heads, "-profile", firefoxProfile)
+                                                  .setBinary("/usr/bin/firefox-esr")
+                                                  .setAlertBehavior('dismiss'))
           .build();
     try {
         // this for the readability version (unless it's disabled)
@@ -56,12 +58,22 @@ async function fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, f
 
         for (const url of urls) {
             await driver.get(url);
+
+            if (h) {
+                // give user a chance to intervene
+                // alas still didn't work, instead need to run something
+                // to detect the cloudflare "are you a human" screen and 
+                // wait until it's been fixed by the user
+                // also, should not create an entirely new session
+                // await driver.sleep(30000); 
+            }
+
             // alas readyState can't be used for lazy loads
             await driver.wait(async () => {
                 const readyState =
                   await driver.executeScript('return document.readyState');
                 return readyState === 'complete';
-            }, 5000);
+            }, 2000);
 
             // force loading of lazy-loaded images
             //   (test case: https://www.hackster.io/news/mini-tower-of-power-368118cbffc3)
@@ -83,7 +95,8 @@ async function fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, f
                 const scrollBottom = scrollTop + windowInnerHeight;
                 // stop scrolling when reached bottom
                 //   or position hasn't changed since last attempt to scroll
-                if (scrollBottom >= newHeight || scrollBottom == lastBottom) {
+                // the newheight != 0 check is for for ex wired which returns 0 for scrollHeight
+                if ((newHeight != 0 && scrollBottom >= newHeight) || scrollBottom == lastBottom) {
                     break;
                 }
                 lastBottom = scrollBottom;
@@ -104,7 +117,7 @@ async function fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, f
             const page_source = await driver.getPageSource();
 
             const dom = new JSDOM(page_source);
-            var options = { debug: true };
+            var options = { debug: false };
             let reader = new Readability(dom.window.document, options);
             article = reader.parse();
             // FIXME word count can be VERY wrong when readability is cutting off parts of the article
@@ -148,9 +161,14 @@ async function fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, f
                     let element = await driver.findElement(By.className(uniqueClassName));
                     await driver.executeScript("arguments[0].scrollIntoView({behavior: 'auto', block: 'center', inline: 'center'});", element);
                     await driver.sleep(250); // give possible lazy loads a chance
-                    const elementScreenshot = await element.takeScreenshot();
-                    writeFileSync(`./${mediaPath}/element_${uniqueClassName}.png`, elementScreenshot, 'base64');
-                    console.log(`Screenshot element_${uniqueClassName} saved.`);
+                    try {
+                        const elementScreenshot = await element.takeScreenshot();
+                        writeFileSync(`./${mediaPath}/element_${uniqueClassName}.png`, elementScreenshot, 'base64');
+                        console.log(`Screenshot element_${uniqueClassName} saved.`);
+                    } catch (blah) {
+                        console.log("well fuck ... (1000)", blah, urls);
+                        console.log("skipped a table for some reason, crashy crash crash");
+                    }
                 }
             }
         }
@@ -207,11 +225,8 @@ async function makeReadable(url, mediaPath, readabilityDisabled, firefoxProfile,
         urls = [url];
     }
     fetch_page_source_firefox(urls, mediaPath, readabilityDisabled, firefoxProfile, (article, jeo, rdOffContent) => {
+      if (article) {
         let articleHtml = jeo; // TODO rename -> content?
-
-        if (!article) {
-            article = { byline: "" };
-        }
 
         // Meta data (sub title, site name, word count)
         let meta = [];
@@ -254,7 +269,10 @@ async function makeReadable(url, mediaPath, readabilityDisabled, firefoxProfile,
 
         // TODO how does this become an error?
         return callback([resJoined, rdOffResJoined]); 
-    });
+      } else {
+        return callback(undefined);
+      }
+  });
 }
 
 module.exports = {

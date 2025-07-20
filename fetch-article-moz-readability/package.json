@@ -13,7 +13,7 @@
   "dependencies": {
     "@jimp/plugin-print": "^0.22.12",
     "@mixmark-io/domino": "^2.2.0",
-    "@mozilla/readability": "^0.4.1",
+    "@mozilla/readability" : "file:../../readability",
     "@types/jest": "^29.5.12",
     "axios": "^1.6.8",
     "base-x": "^4.0.0",

@@ -35,9 +35,13 @@ function countWordsMarkdown(text) {
     return cleaned.split(/\s+/).filter(word => word.length > 0).length;
 }
 
-async function fileExists(filePath) {
+async function fileExists(filePath, noFollow = false) {
     try {
-        await fsAsync.access(filePath);
+        if (noFollow) {
+            await fsAsync.lstat(filePath);
+        } else {
+            await fsAsync.access(filePath);
+        }
         return true;
     } catch (err) {
         if (err.code === 'ENOENT') {
@@ -127,6 +131,7 @@ async function discoverExtension(url, mediaPath, imgDownloadPromises, alreadyExi
             const contentType = response.headers['content-type'];
             console.log('Content-Type:', contentType);
             var extension;
+            var wasExtension;
             if (contentType == "image/png") {
                 extension = "png";
             } else if (contentType == "image/jpeg") {
@@ -144,7 +149,18 @@ async function discoverExtension(url, mediaPath, imgDownloadPromises, alreadyExi
             console.log("downloading now extension resolved", url, contentType);
             const symlinkDestination = `${path.basename(finalPath)}.${extension}`;
             const symlinkFilename = finalPath;
-            await fsAsync.symlink(symlinkDestination, symlinkFilename);
+            console.log(`OMG!!! symlink already exists? - ${symlinkFilename} -> ${await fileExists(symlinkFilename)} vs ${await fileExists(symlinkFilename, true)}`);
+            if (!await fileExists(symlinkFilename, true)) {
+                try {
+                    await fsAsync.symlink(symlinkDestination, symlinkFilename);
+                } catch (error) {
+                    if (error.code === 'EEXIST') {
+                        // ignore and assume all okay, possible race condition
+                    } else {
+                        throw error;
+                    }
+                }
+            }
             imgDownloadPromises.push(downloadImage(url, mediaPath, alreadyExistsCache, wasExtension));
         } else if (response.status == 204) {
             console.log(`${response.status} response during extension discovery, skipping.`);
@@ -152,11 +168,11 @@ async function discoverExtension(url, mediaPath, imgDownloadPromises, alreadyExi
             throw new Error(`Content-Type header not found for URL ${url}`);
         }
     } catch (error) {
-        if (error.response.status == 404) {
+        if (error.response && error.response.status == 404) {
             console.log(`${error.response.status} response during extension discovery, skipping.`);
         } else {
             console.error('Error:', error.message);
-            process.exit(1);
+            throw error;
         }
     }
 }
@@ -186,6 +202,7 @@ async function downloadImage(url, mediaPath, alreadyExistsCache, wasExtension) {
     const localPathPreSymlinkResolve = localPath;
     var localPathNewExtension = undefined;
     var finalPath = imagePathForUrl(url, mediaPath);
+
 
     // TODO doesn't support extension discovered heic/webp etc yet, extend
     // console.log("downloading", url, "to", mediaPath, "as", finalPath);
@@ -337,13 +354,32 @@ async function runPassTwo(unique_ids, baseHref, mediaPath, htmlInput, skipReadab
             const parseMarkdownLink = original.match(REGEXP_MARKDOWN_LINK);
             // NOTE to user clipo.js can be used to open copy/pasted sets of shortcuts
             if (parseMarkdownLink) {
-                const shortcut = base62encode(parseMarkdownLink[2]);
-                return `${original} {${shortcut}}`;
+				var url = node.getAttribute('href');
+                // TODO also check for relative urls and deal with that
+                if (!disableImageDownloads && url[0] == "#") {
+                    console.log("OMG A # URL!!!!", parseMarkdownLink[2], url, content);
+                    return content;
+                } else {
+                    const shortcut = base62encode(parseMarkdownLink[2]);
+                    return `${original} {${shortcut}}`;
+                }
             } else {
                 return original;
             }
         }
     });
+
+    // infoq only to fix the strong > code > a insanity for java classenames don't care about
+    //   should make this more generic someday.
+    if (baseHref == "https://www.infoq.com") {
+        const originalCodeRule = turndownServicePass2.options.rules.inlineLink;
+        turndownServicePass2.addRule('customCodeRule', {
+            filter: originalCodeRule.filter,
+            replacement: function(content, node, options) {
+                return content;
+            }
+        });
+    }
 
 	const originalImageRule2 = turndownServicePass2.options.rules.image;
 	turndownServicePass2.addRule('customImage', {
@@ -471,8 +507,11 @@ async function runPassOne(mediaPath, htmlInput, disableImageDownloads, alreadyEx
         filter: ["metadata"], // could this come from something other than ourselves?
         replacement: function(content, _, _) {
             var unquoted = content.replace('\\[', "[").replace('\\]', "]");
-            metadata = JSON.parse(unquoted);
-            console.log(`Captured metadata: ${unquoted}.`);
+            // if it looks like our expected JSON, else skip
+            if (unquoted.startsWith("[\"")) {
+                metadata = JSON.parse(unquoted);
+                console.log(`Captured metadata: ${unquoted}.`);
+            }
             return "";
         }
     });
@@ -499,10 +538,15 @@ async function runPassOne(mediaPath, htmlInput, disableImageDownloads, alreadyEx
                 url = urlify(url, baseHref);
                 const finalPath = imagePathForUrl(url, mediaPath);
                 console.log("6000", url, baseHref, finalPath)
-                var substackCDN = url.startsWith("https://substackcdn.com");
+                // TODO rename forced discovery
+                var substackCDN = url.startsWith("https://substackcdn.com") || url.startsWith("https://media.newyorker.com");
                 // anything from substackcdn should have discovery forced as they have .jpg URLS that are being transcoded
                 //    yes, this is really lame, and we should instead transition to deciding what to do with a URL
                 //    based on the *actually* downloaded content type (TODO)
+                console.log("URL", url);
+                if (url.startsWith("https://pippio.com") || url.startsWith("http://sli.newyorker.com/") || url.startsWith("https://sli.newyorker.com/") || url.startsWith("https://email.mg-d1.substack.com") || url.startsWith("https://email.mg1.substack.com") || url.startsWith("https://email.mg2.substack.com") || url.startsWith("https://email.mg-d0.substack.com") || url.startsWith("https://pixel.app.returnpath.net") || url.startsWith("https://arcdn.net") || url.startsWith("https://email.mailgun.patreon.com")) {
+                    return "_404_ pippio";
+                }
                 if (supportedImageExtension(finalPath) && !substackCDN) {
                     if (downloading.includes(finalPath)) {
                         console.log(`Already downloading ${url} to ${finalPath}. Skipping to prevent race conditions.`);
@@ -539,10 +583,10 @@ async function runPassOne(mediaPath, htmlInput, disableImageDownloads, alreadyEx
     try {
         await Promise.all(extensionDiscoveryPromises);
     } catch (blah) {
-        console.log("8999", blah);
-        // ignore as anyway we check the fs
+        console.log("9000 FAILURE DURING EXTENSION DISCOVERY", blah);
+        throw blah;
     }
-    console.log("Images have finished their downloads and conversions.");
+    console.log("Extension discovery promises have completed.");
 
     console.log("awaiting all");
     try {
@@ -574,9 +618,13 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
     const dateI = `${year}^${week}`;
     var bookName = `${dateI}-${collection}`;
 
+    console.log("7000");
+
     // note, recursive like mkdir -p skips on existance
     const basePath = `./${dateI}`;
     fs.mkdirSync(basePath, { recursive: true });
+    console.log("7001");
+
     const mediaPath = `${basePath}/media`;
     fs.mkdirSync(mediaPath, { recursive: true });
     const cachePath = `${basePath}/cache`;
@@ -592,9 +640,12 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         console.log(`Refusing to overwrite existing file ${epubFinalPath.replace("./", "")}.\nPass --force to override.`);
         process.exit(1)
     }
+    console.log("7002");
 
     // TODO add more covers and base the choice on a hash of the raindrop collection name
+    // FIXME ASAP OMG THIS IS FUCKED CURRENTLY this shouldn't reuse the same "-new" for everything
     await processImage(`${srcPath}/covers/cover-1.jpg`, `${mediaPath}/cover-new.jpg`, [`${year} ^${week}`, collection]);
+    console.log("7003");
     passthroughStreams(await execPromise(`cjpeg -baseline -quality 25 -optimize -outfile ${mediaPath}/cover-comp.jpg ${mediaPath}/cover-new.jpg`));
 
     var headerTex = `\\usepackage{graphicx}
@@ -621,6 +672,8 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
 
     var toMarker = [];
 
+    console.log("7004");
+
     var imgDownloadPromises = [];
     var metadatas = {};
     for (const bookmark of urls) {
@@ -631,7 +684,9 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         // TODO figure out why the error is the result...
         if (!await fileExists(htmlFname)) {
             try {
+                console.log("7006");
                 await util.promisify(makeReadable)(url, mediaPath, false, firefoxProfile);
+                console.log("7007");
             } catch (blah) {
                 // FIXME this is dreadful...
                 const [resJoined, rdOffContentJoined] = blah;
@@ -681,6 +736,7 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         var mdFnameRdOff = `${sanitizeToFilename(url)}.rdoff.md`;
         fs.writeFileSync(`${basePath}/${mdFnameRdOff}`, markdownWithImages2);
     }
+    console.log("7005");
 
     const baseCwdedExecOptions = { shell: true, cwd: basePath };
 
@@ -701,6 +757,8 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
                                              baseCwdedExecOptions ));
     console.log("Progress markers added.");
 
+
+    console.log("7010");
 
     // TODO ARGHHHHH !@#@$@!# time constraints yay
     const nodeProgressMarkerArgsEmoji = [
@@ -725,21 +783,28 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         //   that doesn't require much more complex (readability like) heuristics
         const ignoreDisparity = !url.includes("www.newyorker.com/");
         // TODO this ratio can change once we've fixed our [] bug
-        if (wordCount > 500 && ratio > 2 && !readabilityDisabled && !ignoreDisparity) {
+        if (wordCount > 500 && ratio > 2 && !readabilityDisabled && !ignoreDisparity && !settings.ignoreDisparityArticles) {
             console.log(`ERROR: Extremely likely Readability should be disabled for URL: ${url}\nLarge word count disparity between readability output: ${wordCount} and raw source word count estimate: ${ourWordCount} (ratio: ${ratio})`);
             process.exit(1);
         }
         console.log("settings", JSON.stringify(settings));
         if (wordCount >= 3000 && urls.length > 1 && !settings.ignoreLongArticles) {
-            console.log(`Very long article found (${wordCount} words) with URL: ${url}.\nPlease re-run it as a single-article book (-s URL -p title)`);
+            console.log(`Very long article found (${wordCount} words) with URL: ${url}\nPlease re-run it as a single-article book (-s URL -p title), or use -l to force inclusion of very long articles.`);
             process.exit(1);
         }
     }
     console.log("Word counts checked and limits verified.");
+    console.log("7020");
 
     // when 3 or more articles no longer provide an 2-level table of content
     const tocDepth = urls.length >= 3 ? 1 : 2;
     const tocDepthArg = `--toc-depth=${tocDepth}`;
+
+    const audibleFile = bookName.includes("Listen") || bookName.includes("Verge");
+    console.log(`audio file -> ${audibleFile}`);
+
+    const markdownType = audibleFile ? ['-f', 'markdown-implicit_figures']
+                                     : [];
 
     const pandocEpubArgs = [
         '--metadata', `"title=${bookName}"`,
@@ -748,6 +813,7 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         '--css=./pandoc_resources/styles.css',
         '-o', `${bookName}.epub`,
         '--toc', tocDepthArg,
+        ...markdownType,
         `${srcPath}/settings.md`,
         ...indexFilesEmoji,
     ];
@@ -785,6 +851,8 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
     `);
     fs.writeFileSync(`${basePath}/${fixedTexFname}`, fixedTex);
 
+    // FIXME should only disable during tests
+    if (true) {
     try {
         passthroughStreams(await execFilePromise('lualatex', ["--halt-on-error", "--interaction=batchmode", `${bookName}_1up.fixed.tex`],
                                                  baseCwdedExecOptions));
@@ -795,9 +863,9 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
         console.log(`Fou might have fucked pictures. Try seeing if you have any 0 byte files in: ls -la ~/hardcopy/${basePath}/media/*.jpg; Try exiftool -jfif:Xresolution=72 -jfif:Yresolution=72 on anything shown when you run: file ~/hardcopy/${basePath}/media/*.jpg | grep "DPI" | grep "density 1x1"`);
 
         process.exit(1);
-    }
     // TODO should display texput.log on failure
     console.log("PDF generation completed.");
+    }
 
     // TODO use bookmark.title + bookmark.domain to and generate
     //      many tiny individual PDFs with nice filenames as well
@@ -813,6 +881,7 @@ async function main(urls, collection, readabilityDisabled, ignoreExistingFiles, 
     passthroughStreams(await execFilePromise('pdfjam', pdfjamArgs, { shell: true }));
     console.log("PDF 2-up step completed.");
     fs.unlinkSync(`${basePath}/${bookName}_1up.fixed.pdf`);
+    }
 
     passthroughStreams(await execPromise(`rclone copy --immutable -v ${basePath}/${bookName}.epub 'koofr:Boox Sync'`));
 }
