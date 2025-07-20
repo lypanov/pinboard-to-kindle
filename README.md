@@ -1,3 +1,5 @@
+CHECKOUT THE 'tmp' BRANCH FOR THE ACTUAL CURRENT VERSION OF THIS TOOL NOW RENAMED HARDCOPY
+
 <p align="center">
   <a href="https://github.com/christianhans/pinboard-to-kindle">
     <img src="https://imgur.com/rWkJ1Bt.jpg" alt="Raspberry Pi and Kindle" width="400">
